@@ -333,7 +333,9 @@ S.testing={subtitle:'Show test evidence that verifies the requirements.',fields:
   ['T-04','FR-02','API calls with invalid battery level, times and coordinates'],
   ['T-05','FR-06','Request with all compatible points busy → WAITING with alternatives'],
   ['T-06','FR-04, NFR-01','Simultaneous requests for the same point and time'],
-  ['T-07','FR-09, FR-10','Cancel and modify confirmed bookings']])],
+  ['T-07','FR-09, FR-10','Cancel and modify confirmed bookings'],
+  ['T-08 to T-12','FR-02, FR-06','Charging-duration model with valid and invalid inputs'],
+  ['T-13','FR-07','Empty-queue boundary: dequeue and peek']])],
  ['Environment, dataset and code version','Node.js + Express 5, mysql2, MySQL database <code>ev_charging_db</code> (configured via <code>.env</code>), React + Vite frontend. Code version: <code>main</code> @ <code>50cb645</code>.'],
  ['Normal, negative and boundary cases',T(['Type','Case','Expected'],[
   ['Normal','Priorities 3, 1, 2, 1 enqueued','Order: user 1002 (P1), 1004 (P1), 1003 (P2), 1001 (P3)'],
@@ -342,16 +344,24 @@ S.testing={subtitle:'Show test evidence that verifies the requirements.',fields:
   ['Boundary','Target battery = current battery','400 rejected'],
   ['Boundary','Back-to-back slots on the same point','Both allowed (strict overlap check)'],
   ['Concurrency','Two users, same point and slot','Only one CONFIRMED']])],
- ['Actual outcomes',`<p>Outcome recorded during backend testing (from the team’s development log):</p>${T(['Field','Result'],[['Status','WAITING'],['Alternative point','TMK-SIM-3248-01'],['Charging power','7.4 kW'],['Estimated duration','196 minutes'],['Battery','25% → 80%']])}<p>Check: a 55% charge at 7.4 kW with η = 0.9 and 196 minutes implies a battery of about 39.6 kWh, which is consistent with the duration model.</p><p class="note">Other outcomes (T-04 to T-07): screenshots and logs to be added by the team.</p>`],
+ ['Actual outcomes',`<p>Outcome recorded during backend testing (from the team’s development log):</p>${T(['Field','Result'],[['Status','WAITING'],['Alternative point','TMK-SIM-3248-01'],['Charging power','7.4 kW'],['Estimated duration','196 minutes'],['Battery','25% → 80%']])}<p>Check: a 55% charge at 7.4 kW with η = 0.9 and 196 minutes implies a battery of about 39.6 kWh, which is consistent with the duration model.</p>${SH('Unit checks run on 07-11-2026 (Node v24.14.0, commit 50cb645)')}${T(['Test','Input','Actual output','Result'],[
+  ['T-01','Priority queue: users 1001 (P3), 1002 (P1), 1003 (P2), 1004 (P1)','1002, 1004, 1003, 1001','Pass'],
+  ['T-02','Booking queue: same four requests','1002, 1004, 1003, 1001; remaining requests: 0','Pass'],
+  ['T-08','Duration: 40.5 kWh, 25% → 80%, 7.4 kW','22.27 kWh, 201 minutes','Pass'],
+  ['T-09','Duration: 30.2 kWh, 20% → 80%, 50 kW','18.12 kWh, 25 minutes','Pass'],
+  ['T-10','Duration: target = current (80% → 80%)','Rejected: “Invalid charging calculation values”','Pass'],
+  ['T-11','Duration: target battery 120%','Rejected','Pass'],
+  ['T-12','Duration: charging power 0 kW','Rejected','Pass'],
+  ['T-13','Empty priority queue: dequeue and peek','null, null','Pass']])}<p class="note">T-04 to T-07 call the API and need the MySQL database running; the team will run them and add the outputs.</p>`],
  ['Limitations and next action','There is no automated test framework yet (<code>npm test</code> is a placeholder), and no end-to-end test with the frontend. <b>Next:</b> add Jest/Supertest API tests and a concurrent-request script.']
 ]};
 
 S.improvement={subtitle:'Record what changed after analysis and verification.',fields:[
  ['Discrepancy and related test IDs','Overlapping requests from the same user, and stale waiting requests remaining in the queue (T-05, T-06).'],
  ['Hypotheses and diagnostic work','Parallel requests from the same user could each pass validation before either was stored; WAITING requests past their end time were still selected by the queue.'],
- ['Findings and cause confidence',null],
+ ['Findings and cause confidence',`<ul><li><b>Cause 1:</b> two requests from the same user could each pass validation before either was saved, because nothing serialised one user’s operations.</li><li><b>Cause 2:</b> the queue selected WAITING requests without checking whether their end time had already passed.</li><li><b>Cause 3:</b> BEE connector labels describe charger families, so matching on them alone could allocate an incompatible point.</li></ul><p><b>Confidence:</b> medium. The causes and fixes are confirmed by reading the code (commit 50cb645). They have not yet been confirmed by a concurrent load test.</p>`],
  ['Correction and design revisions',`<ul><li>Added a per-user <code>GET_LOCK</code> and a check against the user’s own overlapping bookings (step 9).</li><li>Added step 0 in process-next to mark expired requests.</li><li>Restricted compatibility to manufacturer-verified evidence.</li></ul>`],
- ['Before and after verification',null],
+ ['Before and after verification',`${T(['Check','Status'],[['Queue order after the fixes (T-01, T-02)','Pass, run on 07-11-2026'],['Duration and input rejection (T-08 to T-13)','Pass, run on 07-11-2026'],['Same-user overlapping requests, with and without the user lock (T-06)','Not yet run; needs the MySQL database'],['Expired request is skipped by process-next','Not yet run; needs the MySQL database']])}<p>No “before” measurements were recorded, because the first commit already contains the fixes.</p>`],
  ['Learning and remaining questions','A queue orders work but does not guarantee correctness under concurrency; database-level locking is needed for that.']
 ]};
 
@@ -364,7 +374,9 @@ S.foundation={subtitle:'Link engineering decisions to foundational courses.',fie
   ['Algorithms — interval overlap','Conflict detection','start &lt; end′ AND end &gt; start′',F('backend/allocation.js')],
   ['Mathematics — geometry','Nearest alternative','Haversine distance (R = 6371 km)','server.js step 6'],
   ['Physics — energy','Duration estimate','E = C·ΔSOC; T = E/(P·η)',F('backend/chargingDuration.js')]])],
- ['Engineering decision linked to this concept',null],['How the concept was applied',null],['Verification or supporting evidence',null]
+ ['Engineering decision linked to this concept',`<ul><li><b>Heap:</b> waiting requests are served by priority, not only arrival time.</li><li><b>Transactions:</b> a booking and its log row are saved together or not at all.</li><li><b>Mutual exclusion:</b> two users can never be given the same point for the same time.</li><li><b>Interval overlap:</b> a slot is free only if no existing booking overlaps it.</li><li><b>Haversine distance:</b> nearer alternatives rank higher when waits are equal.</li><li><b>Energy model:</b> booking length comes from the battery and charger, not a fixed slot.</li></ul>`],
+ ['How the concept was applied',T(['Concept','Where in the code'],[['Min-heap with (priority, sequence) key','<code>priorityQueue.js</code>: <code>heapifyUp</code>, <code>heapifyDown</code>, <code>hasHigherPriority</code>'],['ACID transactions','<code>server.js</code>: <code>beginTransaction</code>, <code>commit</code>, <code>rollback</code> in allocate, cancel, modify, process-next'],['Row and named locks','<code>allocation.js</code>: <code>SELECT … FOR UPDATE</code>; <code>server.js</code>: <code>GET_LOCK(?, 10)</code>'],['Interval overlap','<code>start_time &lt; requestedEnd AND end_time &gt; requestedStart</code>'],['Haversine','<code>server.js</code> step 6, Earth radius 6371 km'],['Energy model','<code>chargingDuration.js</code>, η = 0.90']])],
+ ['Verification or supporting evidence','Heap order verified by T-01 and T-02, and the energy model by T-08 to T-13, all passing on 07-11-2026 (see Testing and Validation). Locking and transactions are verified by reading the code; the concurrent test T-06 is still to be run.']
 ]};
 
 S.evidence={subtitle:'Register verifiable artefacts.',fields:[
@@ -387,7 +399,7 @@ S.investigations={subtitle:'Testing and validation investigations.',fields:[
  ['Physical test plan (where applicable)','Not applicable (software project).'],
  ['Measurements, observations and datasets',T(['Dataset','Rows','Use'],[['ChargingRecords_All_Unique_Records.csv','72,843','Usage patterns, duration, demand'],['bee_charging_stations_india_extracted.csv (raw)','19,053','Source of the station list'],['bee_charging_stations_india_cleaned.csv','15,470','Imported stations / points'],['india_ev_range_dataset.csv','7,291','Vehicle range reference'],['india_ev_vehicle_master.csv','61','Battery capacity for the duration model']],[1])],
  ['Investigated discrepancy and findings','Cleaning reduced the BEE list from 19,053 to 15,470 rows. BEE connector labels identify a connector family, not proof of vehicle compatibility, so the team introduced <code>evidence_status</code>.'],
- ['Further verification or action',null]
+ ['Further verification or action',`<ul><li>Compare the model’s estimated durations with the real session durations in the charging records (average 151.22 minutes).</li><li>Replay sessions from the dataset as simultaneous booking requests to test allocation under realistic load.</li><li>Re-check the 3,583 BEE rows removed during cleaning (19,053 → 15,470) and record the reasons.</li></ul>`]
 ]};
 
 S.reviews={subtitle:'Chronological record of review decisions and closure.',fields:[
@@ -407,7 +419,15 @@ S.reviews={subtitle:'Chronological record of review decisions and closure.',fiel
 ]};
 
 S.reflections={subtitle:'Each student’s contribution, learning and next action.',fields:[
- ['Student name, USN and stage',null],['Individual contribution',null],['Concepts understood and applied',null],['Challenge and how it was addressed',null],['Personal learning and next action',null]
+ ['Student name, USN and stage',T(['Student','USN','Stage'],[['Srujana B','01FE24BCI041','Sprint 1 (Gate 2 preparation)'],['Mythri Gaded','01FE24BCI031','Sprint 1 (Gate 2 preparation)'],['Akshata Patil','01FE24BCI088','Sprint 1 (Gate 2 preparation)'],['Vandana A M','01FE24BCI075','Sprint 1 (Gate 2 preparation)']])],
+ ['Individual contribution',T(['Student','Engine','Contribution'],[
+  ['Srujana B','E1 · Request &amp; Scheduling','Requests ordered by time and priority. Committed the backend: Express server, priority queue, allocation, duration model and dataset importers (824c4f0).'],
+  ['Mythri Gaded','E2 · Booking Consistency','Transactions that keep booking records correct (commit / rollback). Owned the frontend branch and merged pull request #1 (50cb645).'],
+  ['Akshata Patil','E3 · Concurrent Allocation','Locking charging points so two requests never get the same one. Committed the VoltGrid frontend dashboard (561a1d2).'],
+  ['Vandana A M','E4 · Validation &amp; Quality','Checking every charger state change against the rules and acceptance conditions. Owns the SRS, use cases and traceability.']])],
+ ['Concepts understood and applied',T(['Student','Course','Concepts'],[['Srujana B','Data Structures &amp; Algorithms','Queue, binary min-heap, O(log n) insert and remove, stable ordering'],['Mythri Gaded','DBMS','Transactions, ACID, commit / rollback, keys and relationships'],['Akshata Patil','OSPP','Concurrency, race conditions, mutual exclusion, locking'],['Vandana A M','Software Engineering','Requirements, use cases, acceptance criteria, traceability, state-transition rules']])],
+ ['Challenge and how it was addressed',null],
+ ['Personal learning and next action',null]
 ]};
 
 S.synthesis={subtitle:'Final integration and closing reflection.',fields:[
