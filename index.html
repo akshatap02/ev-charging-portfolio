@@ -236,7 +236,7 @@ S.requirements={subtitle:'Translate the approved need into clear, testable softw
 ]};
 
 S.architecture={subtitle:'Develop the overall design and explain the reasoning behind it.',fields:[
- ['Architecture diagram',`<div class="arch">
+ ['Architecture diagram',`<a href="architecture-diagram-web.png" target="_blank" rel="noopener"><img src="architecture-diagram-web.png" alt="System architecture: React frontend, Express backend with engines E1 to E4, MySQL database and data import" style="width:100%;height:auto;border:1px solid #E4E5ED;border-radius:10px;display:block"></a><p style="margin-top:10px">Solid arrows are implemented; dashed arrows (frontend ↔ API) are planned. Text version of the layers:</p><div class="arch">
   <div class="layer"><b>React + Vite frontend</b><small>VoltGrid dashboard: Dashboard, Book a Charger, My Bookings, Charging Stations, Waiting Queue, Analytics</small></div><div class="down">↓ HTTP / JSON</div>
   <div class="layer"><b>Express.js API layer</b><small><code>backend/server.js</code>: validation, routing, transactions, status codes</small></div><div class="down">↓</div>
   <div class="layer"><b>Allocation engine (DSA)</b><small><code>priorityQueue.js</code> · <code>allocation.js</code> · <code>chargingDuration.js</code> · <code>bookingQueue.js</code> · distance and ranking</small></div><div class="down">↓ mysql2 connection pool</div>
